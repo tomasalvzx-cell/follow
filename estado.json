@@ -2,7 +2,8 @@
   "ultimo_valido": {
     "codigo": 200,
     "vigencia": "Vigente (Vivo)",
-    "fecha": "07/09/2026"
+    "fecha": "07/09/2026",
+    "fecha_local": "2026-09-07T21:27:14.091469+00:00"
   },
-  "racha_fallas": 1
+  "racha_fallas": 0
 }

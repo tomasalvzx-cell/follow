@@ -30,7 +30,7 @@ from email.mime.text import MIMEText
 
 import requests
 
-URL = "https://defunciones.registraduria.gov.co:8443/VigenciaCedula/consulta"
+URL = "https://defun7ciones.registraduria.gov.co:8443/VigenciaCedula/consulta"
 
 REINTENTOS = 3
 ESPERA_ENTRE_REINTENTOS_SEG = 5

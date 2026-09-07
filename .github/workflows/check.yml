@@ -1,0 +1,45 @@
+name: Consultar estado de cédula
+
+on:
+  schedule:
+    # Corre todos los días a las 8:00am hora Colombia (13:00 UTC)
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}   # permite ejecutarlo manualmente también, para probar
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Ejecutar consulta
+        env:
+          NUIP: ${{ secrets.NUIP }}
+          IP_REPORTADA: ${{ secrets.IP_REPORTADA }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_DESTINO: ${{ secrets.EMAIL_DESTINO }}
+          ALERTA_FALLA_CADA_N: "3"
+        run: python check_estado.py
+
+      - name: Guardar estado.json actualizado en el repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add estado.json
+          git diff --quiet --cached || git commit -m "Actualiza estado.json"
+          git push

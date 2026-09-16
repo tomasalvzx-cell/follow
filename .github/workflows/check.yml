@@ -38,16 +38,20 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_DESTINO: ${{ secrets.EMAIL_DESTINO }}
+          API_URL: ${{ secrets.API_URL }}
           ALERTA_FALLA_CADA_N: "3"
         run: python check_estado.py
         # No ponemos continue-on-error: sí queremos que el job quede en rojo
         # si el script falla (código 1) — es la señal visual de que algo pasó.
 
-      - name: Guardar estado.json actualizado en el repo
+      - name: Guardar estado e histórico en el repo
         if: always()   # corre incluso si el paso anterior falló, para no perder el registro
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add estado.json
-          git diff --quiet --cached || git commit -m "Actualiza estado.json"
+          # --ignore-errors: si alguno de los dos aún no existe, no aborta
+          git add estado.json historico.jsonl 2>/dev/null || true
+          git diff --quiet --cached || git commit -m "Actualiza estado e histórico [skip ci]"
+          # Rebase por si otra corrida commiteó mientras tanto
+          git pull --rebase --autostash origin main || true
           git push

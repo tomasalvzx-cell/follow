@@ -17,8 +17,10 @@ Variables de entorno requeridas:
                          "correo1@gmail.com, correo2@gmail.com"
 
 Variables opcionales:
+  API_URL             -> URL del servicio a consultar (default: endpoint de la Registraduría)
   IP_REPORTADA        -> valor "ip" del payload (default: 190.68.144.124)
   ESTADO_FILE         -> ruta del archivo de estado (default: estado.json)
+  HISTORICO_FILE      -> ruta del histórico de llamadas (default: historico.jsonl)
   ALERTA_FALLA_CADA_N -> cada cuántos días de falla consecutiva se reavisa (default: 3)
   REINTENTOS          -> reintentos para errores transitorios (default: 3)
   ESPERA_REINTENTO_SEG-> segundos base de espera entre reintentos (default: 5, con backoff)
@@ -40,7 +42,7 @@ from email.mime.text import MIMEText
 
 import requests
 
-URL = "https://defunciones.registraduria.gov.co:8443/VigenciaCedula/consulta"
+URL_DEFAULT = "https://defunciones.registraduria.gov.co:8443/VigenciaCedula/consulta"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("seguimiento")
@@ -63,7 +65,9 @@ class Config:
     smtp_user: str
     smtp_pass: str
     email_destino: list[str]
+    api_url: str = URL_DEFAULT
     estado_file: str = "estado.json"
+    historico_file: str = "historico.jsonl"
     alerta_falla_cada_n: int = 3
     reintentos: int = 3
     espera_reintento_seg: int = 5
@@ -88,7 +92,7 @@ class Config:
 
         return cls(
             nuip=nuip,
-            ip=os.environ.get("IP_REPORTADA", "190.68.144.124"),
+            ip=os.environ.get("IP_REPORTADA") or "190.68.144.124",
             smtp_host=requerida("SMTP_HOST"),
             smtp_port=smtp_port,
             smtp_user=requerida("SMTP_USER"),
@@ -96,16 +100,20 @@ class Config:
             email_destino=[
                 correo.strip() for correo in requerida("EMAIL_DESTINO").split(",") if correo.strip()
             ],
-            estado_file=os.environ.get("ESTADO_FILE", "estado.json"),
-            alerta_falla_cada_n=int(os.environ.get("ALERTA_FALLA_CADA_N", "3")),
-            reintentos=int(os.environ.get("REINTENTOS", "3")),
-            espera_reintento_seg=int(os.environ.get("ESPERA_REINTENTO_SEG", "5")),
+            # Se usa "or" en vez del default de .get(): en GitHub Actions un
+            # secreto no definido llega como cadena vacía, no como ausente.
+            api_url=os.environ.get("API_URL") or URL_DEFAULT,
+            estado_file=os.environ.get("ESTADO_FILE") or "estado.json",
+            historico_file=os.environ.get("HISTORICO_FILE") or "historico.jsonl",
+            alerta_falla_cada_n=int(os.environ.get("ALERTA_FALLA_CADA_N") or 3),
+            reintentos=int(os.environ.get("REINTENTOS") or 3),
+            espera_reintento_seg=int(os.environ.get("ESPERA_REINTENTO_SEG") or 5),
         )
 
 
-def consultar_estado_una_vez(nuip: int, ip: str) -> dict:
+def consultar_estado_una_vez(url: str, nuip: int, ip: str) -> dict:
     payload = {"nuip": nuip, "ip": ip}
-    resp = requests.post(URL, json=payload, timeout=15)
+    resp = requests.post(url, json=payload, timeout=15)
     resp.raise_for_status()  # error transitorio típico (5xx) -> se reintenta
 
     try:
@@ -134,7 +142,7 @@ def consultar_con_reintentos(cfg: Config) -> tuple[dict | None, str | None]:
     ultimo_error = None
     for intento in range(1, cfg.reintentos + 1):
         try:
-            return consultar_estado_una_vez(cfg.nuip, cfg.ip), None
+            return consultar_estado_una_vez(cfg.api_url, cfg.nuip, cfg.ip), None
         except RespuestaInvalida as e:
             log.warning("Respuesta inválida (no se reintenta): %s", e)
             return None, f"RespuestaInvalida: {e}"
@@ -167,6 +175,41 @@ def guardar_estado(path: str, estado: dict) -> None:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
+
+
+def registrar_historico(
+    path: str,
+    *,
+    exito: bool,
+    data: dict | None = None,
+    error: str | None = None,
+    racha_fallas: int = 0,
+    cambio_detectado: bool = False,
+) -> None:
+    """Agrega UNA línea JSON al histórico por cada llamada al servicio.
+
+    Formato .jsonl (append-only): no hay que reescribir el archivo completo
+    cada día, así que no se corrompe el historial viejo si el proceso se corta,
+    y git genera un diff limpio de una sola línea por ejecución.
+
+    Si falla el registro del histórico NO se propaga la excepción: es
+    información complementaria, no debe tumbar el monitoreo principal.
+    """
+    registro = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "exito": exito,
+        "vigencia": (data or {}).get("vigencia"),
+        "fecha_api": (data or {}).get("fecha"),
+        "codigo": (data or {}).get("codigo"),
+        "error": error,
+        "racha_fallas": racha_fallas,
+        "cambio_detectado": cambio_detectado,
+    }
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.error("No se pudo escribir en el histórico '%s': %s", path, e)
 
 
 def enviar_correo(cfg: Config, asunto: str, cuerpo: str) -> None:
@@ -231,6 +274,7 @@ def main() -> int:
             )
 
         guardar_estado(cfg.estado_file, {"ultimo_valido": ultimo_valido, "racha_fallas": racha_fallas})
+        registrar_historico(cfg.historico_file, exito=False, error=error, racha_fallas=racha_fallas)
         # Código 1 -> el job queda en rojo en GitHub Actions, visible de un vistazo.
         return 1
 
@@ -244,10 +288,13 @@ def main() -> int:
 
     if ultimo_valido is None:
         guardar_estado(cfg.estado_file, {"ultimo_valido": data, "racha_fallas": 0})
+        registrar_historico(cfg.historico_file, exito=True, data=data)
         log.info("Primera ejecución exitosa: estado base guardado, sin correo de cambio.")
         return 0
 
-    if data.get("vigencia") != ultimo_valido.get("vigencia"):
+    cambio_detectado = data.get("vigencia") != ultimo_valido.get("vigencia")
+
+    if cambio_detectado:
         enviar_correo_seguro(
             cfg,
             asunto="🔴 Cambio detectado en estado de cédula",
@@ -262,6 +309,7 @@ def main() -> int:
         log.info("Sin cambios de estado.")
 
     guardar_estado(cfg.estado_file, {"ultimo_valido": data, "racha_fallas": 0})
+    registrar_historico(cfg.historico_file, exito=True, data=data, cambio_detectado=cambio_detectado)
     return 0
 
 

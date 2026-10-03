@@ -3,7 +3,8 @@ name: Consultar estado de cédula
 on:
   schedule:
     # Corre todos los días a las 8:00am hora Colombia (13:00 UTC)
-    - cron: "0 13 * * *"
+    #- cron: "0 13 * * *"
+    - cron: "0 8 * * *" 
   workflow_dispatch: {}   # permite ejecutarlo manualmente también, para probar
 
 permissions:

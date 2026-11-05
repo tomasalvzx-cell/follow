@@ -49,3 +49,4 @@
 {"timestamp": "2026-11-02T17:40:55.990487+00:00", "exito": true, "vigencia": "Vigente (Vivo)", "fecha_api": "02/11/2026", "codigo": 200, "error": null, "racha_fallas": 0, "cambio_detectado": false}
 {"timestamp": "2026-11-03T15:42:58.384760+00:00", "exito": true, "vigencia": "Vigente (Vivo)", "fecha_api": "03/11/2026", "codigo": 200, "error": null, "racha_fallas": 0, "cambio_detectado": false}
 {"timestamp": "2026-11-04T15:54:21.275058+00:00", "exito": true, "vigencia": "Vigente (Vivo)", "fecha_api": "04/11/2026", "codigo": 200, "error": null, "racha_fallas": 0, "cambio_detectado": false}
+{"timestamp": "2026-11-05T15:59:31.286585+00:00", "exito": true, "vigencia": "Vigente (Vivo)", "fecha_api": "05/11/2026", "codigo": 200, "error": null, "racha_fallas": 0, "cambio_detectado": false}
